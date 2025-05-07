@@ -17,6 +17,8 @@ type TraderCLI struct {
 	client     *futures.Client
 	maxProfit  map[string]float64
 	positions  map[string]float64  // 记录上一次的仓位大小
+	lastPosition map[string]*futures.PositionRisk
+	lastUpdate   map[string]time.Time
 }
 
 func NewTraderCLI(apiKey, secretKey string) (*TraderCLI, error) {
@@ -26,6 +28,8 @@ func NewTraderCLI(apiKey, secretKey string) (*TraderCLI, error) {
 		client:     client,
 		maxProfit:  make(map[string]float64),
 		positions:  make(map[string]float64),
+		lastPosition: make(map[string]*futures.PositionRisk),
+		lastUpdate:   make(map[string]time.Time),
 	}, nil
 }
 
@@ -288,34 +292,54 @@ func (t *TraderCLI) run() error {
 	log.Printf("交易系统启动...")
 
 	for {
-		log.Printf("获取持仓信息...")
-		// 获取持仓信息
-		positions, err := t.client.NewGetPositionRiskService().Do(context.Background())
-		if err != nil {
-			log.Printf("获取持仓信息失败: %v", err)
-			time.Sleep(5 * time.Second)  // 失败后等待5秒
-			continue
-		}
-
-		log.Printf("获取到 %d 个持仓信息", len(positions))
-
-		// 检查每个持仓
-		hasSOLPosition := false
-		for _, p := range positions {
-			if p.Symbol == "SOLUSDC" {
-				hasSOLPosition = true
-				amt, _ := strconv.ParseFloat(p.PositionAmt, 64)
-				log.Printf("检查 SOLUSDC 持仓，数量: %.4f", amt)
-				
-				// 检查止盈止损
-				if err := t.checkProtectiveStopProfit(p); err != nil {
-					log.Printf("检查止盈止损失败: %v", err)
+		// 检查缓存的持仓信息是否仍然有效（5秒内）
+		var currentPosition *futures.PositionRisk
+		if lastPos, ok := t.lastPosition["SOLUSDC"]; ok {
+			if lastUpdate, ok := t.lastUpdate["SOLUSDC"]; ok {
+				if time.Since(lastUpdate) < 5*time.Second {
+					currentPosition = lastPos
 				}
 			}
 		}
 
-		if !hasSOLPosition {
-			log.Printf("未找到 SOLUSDC 持仓信息")
+		// 如果缓存无效，获取新的持仓信息
+		if currentPosition == nil {
+			log.Printf("获取持仓信息...")
+			positions, err := t.client.NewGetPositionRiskService().Do(context.Background())
+			if err != nil {
+				log.Printf("获取持仓信息失败: %v", err)
+				time.Sleep(5 * time.Second)  // 失败后等待5秒
+				continue
+			}
+
+			log.Printf("获取到 %d 个持仓信息", len(positions))
+
+			// 查找SOLUSDC持仓
+			for _, p := range positions {
+				if p.Symbol == "SOLUSDC" {
+					currentPosition = p
+					// 更新缓存
+					t.lastPosition["SOLUSDC"] = p
+					t.lastUpdate["SOLUSDC"] = time.Now()
+					break
+				}
+			}
+
+			// 如果没有找到持仓，创建一个空持仓
+			if currentPosition == nil {
+				currentPosition = &futures.PositionRisk{Symbol: "SOLUSDC", PositionAmt: "0"}
+				t.lastPosition["SOLUSDC"] = currentPosition
+				t.lastUpdate["SOLUSDC"] = time.Now()
+			}
+		}
+
+		// 处理持仓信息
+		amt, _ := strconv.ParseFloat(currentPosition.PositionAmt, 64)
+		log.Printf("检查 SOLUSDC 持仓，数量: %.4f", amt)
+		
+		// 检查止盈止损
+		if err := t.checkProtectiveStopProfit(currentPosition); err != nil {
+			log.Printf("检查止盈止损失败: %v", err)
 		}
 
 		// 等待一秒
