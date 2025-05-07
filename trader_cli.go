@@ -60,13 +60,24 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 		return nil
 	}
 
-	// 检查仓位是否变化
-	lastAmt, exists := t.positions["SOLUSDC"]
-	if !exists {
-		t.positions["SOLUSDC"] = amt
-	} else if lastAmt != amt {
-		// 仓位发生变化，取消所有止盈止损订单
-		log.Printf("仓位变化 [%.4f -> %.4f]，重新设置止盈止损", lastAmt, amt)
+	// 获取当前止损订单
+	orders, err := t.client.NewListOpenOrdersService().Symbol("SOLUSDC").Do(context.Background())
+	if err != nil {
+		return fmt.Errorf("获取订单失败: %v", err)
+	}
+
+	// 计算当前止损订单的总数量
+	var totalStopLossQty float64
+	for _, order := range orders {
+		if order.Type == futures.OrderTypeStopMarket {
+			qty, _ := strconv.ParseFloat(order.OrigQuantity, 64)
+			totalStopLossQty += qty
+		}
+	}
+
+	// 如果止损订单总数量不等于仓位数量，重新设置
+	if math.Abs(totalStopLossQty - math.Abs(amt)) > 0.0001 {
+		log.Printf("止损订单数量不匹配 [订单: %.4f, 仓位: %.4f]，重新设置止盈止损", totalStopLossQty, math.Abs(amt))
 		if err := t.cancelAllTPSL(); err != nil {
 			return fmt.Errorf("取消订单失败: %v", err)
 		}
@@ -139,6 +150,24 @@ func (t *TraderCLI) checkAndSetTakeProfit(position *futures.PositionRisk) error 
 	orders, err := t.client.NewListOpenOrdersService().Symbol("SOLUSDC").Do(context.Background())
 	if err != nil {
 		return fmt.Errorf("获取订单失败: %v", err)
+	}
+
+	// 计算当前止盈订单的总数量
+	var totalTakeProfitQty float64
+	for _, order := range orders {
+		if order.Type == futures.OrderTypeLimit {
+			qty, _ := strconv.ParseFloat(order.OrigQuantity, 64)
+			totalTakeProfitQty += qty
+		}
+	}
+
+	// 如果止盈订单总数量不等于仓位数量，重新设置
+	if math.Abs(totalTakeProfitQty - math.Abs(amt)) > 0.0001 {
+		log.Printf("止盈订单数量不匹配 [订单: %.4f, 仓位: %.4f]，重新设置止盈止损", totalTakeProfitQty, math.Abs(amt))
+		if err := t.cancelAllTPSL(); err != nil {
+			return fmt.Errorf("取消订单失败: %v", err)
+		}
+		return nil
 	}
 
 	// 检查是否已有止盈单
