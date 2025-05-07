@@ -132,7 +132,12 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) error {
 	amt, _ := strconv.ParseFloat(position.PositionAmt, 64)
 	if amt == 0 {
-		delete(t.maxProfit, position.Symbol)  // 清除记录
+		// 没有持仓时，清除记录并撤销所有止盈止损单
+		delete(t.maxProfit, position.Symbol)
+		if err := t.cancelAllTPSL(); err != nil {
+			return fmt.Errorf("取消订单失败: %v", err)
+		}
+		log.Printf("没有持仓，已撤销所有止盈止损单")
 		return nil
 	}
 
