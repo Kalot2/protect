@@ -16,7 +16,7 @@ import (
 type TraderCLI struct {
 	client     *futures.Client
 	maxProfit  map[string]float64
-	positions  map[string]float64  // 记录上一次的仓位大小
+	positions  map[string]float64
 	lastPosition map[string]*futures.PositionRisk
 	lastUpdate   map[string]time.Time
 }
@@ -315,8 +315,11 @@ func (t *TraderCLI) run() error {
 			log.Printf("获取到 %d 个持仓信息", len(positions))
 
 			// 查找SOLUSDC持仓
+			log.Printf("开始查找SOLUSDC持仓信息...")
 			for _, p := range positions {
 				if p.Symbol == "SOLUSDC" {
+					log.Printf("找到SOLUSDC持仓信息 - Symbol: %s, PositionAmt: %s, EntryPrice: %s, MarkPrice: %s, UnRealizedProfit: %s, LiquidationPrice: %s, Leverage: %s, MarginType: %s",
+					p.Symbol, p.PositionAmt, p.EntryPrice, p.MarkPrice, p.UnRealizedProfit, p.LiquidationPrice, p.Leverage, p.MarginType)
 					currentPosition = p
 					// 更新缓存
 					t.lastPosition["SOLUSDC"] = p
