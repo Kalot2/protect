@@ -135,7 +135,15 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 
 func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) error {
 	amt, _ := strconv.ParseFloat(position.PositionAmt, 64)
-	if amt == 0 {
+	
+	// 确定仓位方向
+	var direction string
+	if amt > 0 {
+		direction = "多"
+	} else if amt < 0 {
+		direction = "空"
+	} else {
+		direction = "无"
 		// 没有持仓时，清除记录并撤销所有止盈止损单
 		delete(t.maxProfit, position.Symbol)
 		if err := t.cancelAllTPSL(); err != nil {
@@ -144,6 +152,8 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 		log.Printf("没有持仓，已撤销所有止盈止损单")
 		return nil
 	}
+
+	log.Printf("当前%s仓，数量: %.4f", direction, math.Abs(amt))
 
 	entryPrice, _ := strconv.ParseFloat(position.EntryPrice, 64)
 	unPnl, _ := strconv.ParseFloat(position.UnRealizedProfit, 64)
@@ -162,81 +172,106 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 		if math.Abs(qty - math.Abs(amt)) <= 0.0001 {
 			if order.Type == futures.OrderTypeStopMarket {
 				hasValidStopLoss = true
+				log.Printf("发现有效止损单: 数量=%.4f, 价格=%.2f", qty, order.StopPrice)
 			} else if order.Type == futures.OrderTypeLimit {
 				hasValidTakeProfit = true
+				log.Printf("发现有效止盈单: 数量=%.4f, 价格=%.2f", qty, order.Price)
 			}
 		}
 	}
 
-	// 如果缺少任何一种订单，重新设置全部订单
-	if !hasValidStopLoss || !hasValidTakeProfit {
-		log.Printf("缺少止盈止损订单，重新设置")
-		if err := t.cancelAllTPSL(); err != nil {
-			return fmt.Errorf("取消订单失败: %v", err)
+	// 如果没有持仓，不需要设置止盈止损单
+	if amt == 0 {
+		if len(orders) > 0 {
+			log.Printf("没有持仓，但发现%d个订单，准备清除", len(orders))
+			if err := t.cancelAllTPSL(); err != nil {
+				return fmt.Errorf("取消订单失败: %v", err)
+			}
 		}
-		// 等待两秒，确保订单已经被取消
-		time.Sleep(2 * time.Second)
+		return nil
+	}
+
+	// 如果缺少任何一种订单，只设置缺少的订单
+	if !hasValidStopLoss || !hasValidTakeProfit {
+		if !hasValidStopLoss {
+			log.Printf("缺少止损订单，准备设置")
+		}
+		if !hasValidTakeProfit {
+			log.Printf("缺少止盈订单，准备设置")
+		}
 
 		// 设置止损单
-		stopPrice := entryPrice
-		side := futures.SideTypeSell
-		positionSide := futures.PositionSideTypeLong
-		if amt > 0 {
-			// 多仓，止损价格在入场价下方100点
-			stopPrice = entryPrice - 1.0
-			side = futures.SideTypeSell
-			positionSide = futures.PositionSideTypeLong
-		} else {
-			// 空仓，止损价格在入场价上方100点
-			stopPrice = entryPrice + 1.0
-			side = futures.SideTypeBuy
-			positionSide = futures.PositionSideTypeShort
-		}
+		if !hasValidStopLoss {
+			stopPrice := entryPrice
+			side := futures.SideTypeSell
+			positionSide := futures.PositionSideTypeLong
+			if amt > 0 {
+				// 多仓，止损价格在入场价下方100点
+				stopPrice = entryPrice - 1.0
+				side = futures.SideTypeSell
+				positionSide = futures.PositionSideTypeLong
+				log.Printf("设置多仓止损单，入场价: %.2f，止损价: %.2f", entryPrice, stopPrice)
+			} else {
+				// 空仓，止损价格在入场价上方100点
+				stopPrice = entryPrice + 1.0
+				side = futures.SideTypeBuy
+				positionSide = futures.PositionSideTypeShort
+				log.Printf("设置空仓止损单，入场价: %.2f，止损价: %.2f", entryPrice, stopPrice)
+			}
 
-		// 创建止损单
-		_, err = t.client.NewCreateOrderService().
-			Symbol("SOLUSDC").
-			Side(side).
-			PositionSide(positionSide).
-			Type(futures.OrderTypeStopMarket).
-			Quantity(fmt.Sprintf("%.4f", math.Abs(amt))).
-			StopPrice(fmt.Sprintf("%.2f", stopPrice)).
-			Do(context.Background())
-		if err != nil {
-			return fmt.Errorf("设置止损单失败: %v", err)
+			// 创建止损单
+			stopOrder := t.client.NewCreateOrderService().
+				Symbol("SOLUSDC").
+				Side(side).
+				PositionSide(positionSide).
+				Type(futures.OrderTypeStopMarket).
+				Quantity(fmt.Sprintf("%.4f", math.Abs(amt))).
+				StopPrice(fmt.Sprintf("%.2f", stopPrice)).
+				WorkingType("CONTRACT_PRICE")
+
+			_, err = stopOrder.Do(context.Background())
+			if err != nil {
+				return fmt.Errorf("设置止损单失败: %v", err)
+			}
+			log.Printf("已设置止损单，价格: %.2f", stopPrice)
 		}
-		log.Printf("已设置止损单，价格: %.2f", stopPrice)
 
 		// 设置止盈单
-		side = futures.SideTypeSell
-		positionSide = futures.PositionSideTypeLong
-		var price float64
-		if amt > 0 {
-			// 多仓，止盈价格在入场价上方200点
-			price = entryPrice + 2.0
-			side = futures.SideTypeSell
-			positionSide = futures.PositionSideTypeLong
-		} else {
-			// 空仓，止盈价格在入场价下方200点
-			price = entryPrice - 2.0
-			side = futures.SideTypeBuy
-			positionSide = futures.PositionSideTypeShort
-		}
+		if !hasValidTakeProfit {
+			var takeProfitPrice float64
+			side := futures.SideTypeSell
+			positionSide := futures.PositionSideTypeLong
+			if amt > 0 {
+				// 多仓，止盈价格在入场价上方100点
+				takeProfitPrice = entryPrice + 1.0
+				side = futures.SideTypeSell
+				positionSide = futures.PositionSideTypeLong
+				log.Printf("设置多仓止盈单，入场价: %.2f，止盈价: %.2f", entryPrice, takeProfitPrice)
+			} else {
+				// 空仓，止盈价格在入场价下方100点
+				takeProfitPrice = entryPrice - 1.0
+				side = futures.SideTypeBuy
+				positionSide = futures.PositionSideTypeShort
+				log.Printf("设置空仓止盈单，入场价: %.2f，止盈价: %.2f", entryPrice, takeProfitPrice)
+			}
 
-		// 创建止盈单
-		_, err = t.client.NewCreateOrderService().
-			Symbol("SOLUSDC").
-			Side(side).
-			PositionSide(positionSide).
-			Type(futures.OrderTypeLimit).
-			TimeInForce(futures.TimeInForceTypeGTC).
-			Quantity(fmt.Sprintf("%.4f", math.Abs(amt))).
-			Price(fmt.Sprintf("%.2f", price)).
-			Do(context.Background())
-		if err != nil {
-			return fmt.Errorf("设置止盈单失败: %v", err)
+			// 创建止盈单
+			profitOrder := t.client.NewCreateOrderService().
+				Symbol("SOLUSDC").
+				Side(side).
+				PositionSide(positionSide).
+				Type(futures.OrderTypeLimit).
+				TimeInForce(futures.TimeInForceTypeGTC).
+				Quantity(fmt.Sprintf("%.4f", math.Abs(amt))).
+				Price(fmt.Sprintf("%.2f", takeProfitPrice)).
+				WorkingType("CONTRACT_PRICE")
+
+			_, err = profitOrder.Do(context.Background())
+			if err != nil {
+				return fmt.Errorf("设置止盈单失败: %v", err)
+			}
+			log.Printf("已设置止盈单，价格: %.2f", takeProfitPrice)
 		}
-		log.Printf("已设置止盈单，价格: %.2f", price)
 	}
 
 	// 更新最高盈利
@@ -316,15 +351,22 @@ func (t *TraderCLI) run() error {
 
 			// 查找SOLUSDC持仓
 			log.Printf("开始查找SOLUSDC持仓信息...")
+			// 打印所有非零持仓
 			for _, p := range positions {
-				if p.Symbol == "SOLUSDC" {
-					log.Printf("找到SOLUSDC持仓信息 - Symbol: %s, PositionAmt: %s, EntryPrice: %s, MarkPrice: %s, UnRealizedProfit: %s, LiquidationPrice: %s, Leverage: %s, MarginType: %s",
-					p.Symbol, p.PositionAmt, p.EntryPrice, p.MarkPrice, p.UnRealizedProfit, p.LiquidationPrice, p.Leverage, p.MarginType)
-					currentPosition = p
-					// 更新缓存
-					t.lastPosition["SOLUSDC"] = p
-					t.lastUpdate["SOLUSDC"] = time.Now()
-					break
+				amt, _ := strconv.ParseFloat(p.PositionAmt, 64)
+				if amt != 0 {
+					log.Printf("发现持仓: Symbol=%s, PositionAmt=%s, EntryPrice=%s", p.Symbol, p.PositionAmt, p.EntryPrice)
+					// 如果是SOLUSDC，直接使用这个持仓信息
+					if p.Symbol == "SOLUSDC" {
+						log.Printf("找到SOLUSDC有效持仓 - Symbol: %s, PositionAmt: %s, EntryPrice: %s, MarkPrice: %s, UnRealizedProfit: %s, LiquidationPrice: %s, Leverage: %s, MarginType: %s",
+							p.Symbol, p.PositionAmt, p.EntryPrice, p.MarkPrice,
+							p.UnRealizedProfit, p.LiquidationPrice, p.Leverage, p.MarginType)
+						currentPosition = p
+						// 更新缓存
+						t.lastPosition["SOLUSDC"] = p
+						t.lastUpdate["SOLUSDC"] = time.Now()
+						break
+					}
 				}
 			}
 
