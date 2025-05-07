@@ -88,7 +88,6 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 		}
 		// 等待两秒，确保订单已经被取消
 		time.Sleep(2 * time.Second)
-		return nil
 	}
 
 	// 如果没有有效的止损单，创建一个
@@ -164,7 +163,6 @@ func (t *TraderCLI) checkAndSetTakeProfit(position *futures.PositionRisk) error 
 		}
 		// 等待两秒，确保订单已经被取消
 		time.Sleep(2 * time.Second)
-		return nil
 	}
 
 	// 如果没有有效的止盈单，创建一个
