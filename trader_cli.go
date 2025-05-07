@@ -56,6 +56,7 @@ func (t *TraderCLI) cancelAllTPSL() error {
 
 func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 	amt, _ := strconv.ParseFloat(position.PositionAmt, 64)
+	entryPrice, _ := strconv.ParseFloat(position.EntryPrice, 64)
 	if amt == 0 {
 		return nil
 	}
@@ -90,8 +91,6 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 		time.Sleep(2 * time.Second)
 		return nil
 	}
-
-	entryPrice, _ := strconv.ParseFloat(position.EntryPrice, 64)
 
 	// 如果没有有效的止损单，创建一个
 	if !hasValidStopLoss {
@@ -134,6 +133,7 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 
 func (t *TraderCLI) checkAndSetTakeProfit(position *futures.PositionRisk) error {
 	amt, _ := strconv.ParseFloat(position.PositionAmt, 64)
+	entryPrice, _ := strconv.ParseFloat(position.EntryPrice, 64)
 	if amt == 0 {
 		return nil
 	}
@@ -168,8 +168,6 @@ func (t *TraderCLI) checkAndSetTakeProfit(position *futures.PositionRisk) error 
 		time.Sleep(2 * time.Second)
 		return nil
 	}
-
-	entryPrice, _ := strconv.ParseFloat(position.EntryPrice, 64)
 
 	// 如果没有有效的止盈单，创建一个
 	if !hasValidTakeProfit {
