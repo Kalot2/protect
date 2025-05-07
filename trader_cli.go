@@ -60,7 +60,7 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 		return nil
 	}
 
-	// 获取当前止损订单
+	// 获取当前订单
 	orders, err := t.client.NewListOpenOrdersService().Symbol("SOLUSDC").Do(context.Background())
 	if err != nil {
 		return fmt.Errorf("获取订单失败: %v", err)
@@ -82,12 +82,8 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 			return fmt.Errorf("取消订单失败: %v", err)
 		}
 		t.positions["SOLUSDC"] = amt
-	}
-
-	// 获取当前止损订单
-	orders, err := t.client.NewListOpenOrdersService().Symbol("SOLUSDC").Do(context.Background())
-	if err != nil {
-		return fmt.Errorf("获取订单失败: %v", err)
+		// 等待一秒，确保订单已经被取消
+		time.Sleep(time.Second)
 	}
 
 	// 检查是否已有止损单
@@ -99,6 +95,11 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 			hasStopLoss = true
 			break
 		}
+	}
+
+	// 如果已经有止损单且数量正确，不需要重新设置
+	if hasStopLoss {
+		return nil
 	}
 
 	// 如果没有止损单，创建一个
@@ -167,7 +168,8 @@ func (t *TraderCLI) checkAndSetTakeProfit(position *futures.PositionRisk) error 
 		if err := t.cancelAllTPSL(); err != nil {
 			return fmt.Errorf("取消订单失败: %v", err)
 		}
-		return nil
+		// 等待一秒，确保订单已经被取消
+		time.Sleep(time.Second)
 	}
 
 	// 检查是否已有止盈单
