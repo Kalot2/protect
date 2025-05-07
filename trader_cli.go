@@ -164,6 +164,30 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 		return fmt.Errorf("获取订单失败: %v", err)
 	}
 
+	// 检查上次的仓位和入场价
+	lastAmt := 0.0
+	lastEntryPrice := 0.0
+	if lastPos, ok := t.lastPosition["SOLUSDC"]; ok {
+		lastAmt, _ = strconv.ParseFloat(lastPos.PositionAmt, 64)
+		lastEntryPrice, _ = strconv.ParseFloat(lastPos.EntryPrice, 64)
+	}
+
+	// 如果仓位或入场价变化，取消所有订单
+	if math.Abs(lastAmt-amt) > 0.0001 || math.Abs(lastEntryPrice-entryPrice) > 0.01 {
+		log.Printf("仓位或入场价变化，准备重新设置订单")
+		log.Printf("旧仓位: %.4f, 新仓位: %.4f", lastAmt, amt)
+		log.Printf("旧入场价: %.2f, 新入场价: %.2f", lastEntryPrice, entryPrice)
+		if err := t.cancelAllTPSL(); err != nil {
+			return fmt.Errorf("取消订单失败: %v", err)
+		}
+		time.Sleep(1 * time.Second)
+		// 重新获取订单
+		orders, err = t.client.NewListOpenOrdersService().Symbol("SOLUSDC").Do(context.Background())
+		if err != nil {
+			return fmt.Errorf("获取订单失败: %v", err)
+		}
+	}
+
 	// 检查是否已有止损和止盈单
 	hasValidStopLoss := false
 	hasValidTakeProfit := false
