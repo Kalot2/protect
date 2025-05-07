@@ -231,8 +231,10 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 	}
 
 	// 更新最高盈利
-	if maxProfit, ok := t.maxProfit[position.Symbol]; !ok || unPnl > maxProfit {
+	maxProfit := t.maxProfit[position.Symbol]
+	if maxProfit == 0 || unPnl > maxProfit {
 		t.maxProfit[position.Symbol] = unPnl
+		maxProfit = unPnl
 	}
 
 	// 打印持仓信息
@@ -241,10 +243,10 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 		positionType = "空"
 	}
 	log.Printf("持仓信息 - 方向: %s, 数量: %.4f, 入场价: %.2f, 未实现盈亏: %.2f, 最高盈利: %.2f",
-		positionType, math.Abs(amt), entryPrice, unPnl, t.maxProfit[position.Symbol])
+		positionType, math.Abs(amt), entryPrice, unPnl, maxProfit)
 
 	// 如果曾经盈利超过200U，且当前回撤超过50%，执行市价平仓
-	if t.maxProfit[position.Symbol] >= 200 && unPnl <= t.maxProfit[position.Symbol]*0.5 {
+	if maxProfit >= 200 && unPnl <= maxProfit*0.5 {
 		side := futures.SideTypeSell
 		positionSide := futures.PositionSideTypeLong
 		if amt < 0 {
