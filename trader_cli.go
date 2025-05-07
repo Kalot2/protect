@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"net"
-	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -22,23 +20,8 @@ type TraderCLI struct {
 }
 
 func NewTraderCLI(apiKey, secretKey string) (*TraderCLI, error) {
-	// 创建自定义的HTTP客户端，设置超时时间
-	httpClient := &http.Client{
-		Timeout: 10 * time.Second,  // 设置10秒超时
-		Transport: &http.Transport{
-			DialContext: (&net.Dialer{
-				Timeout: 5 * time.Second,  // 连接超时
-			}).DialContext,
-			TLSHandshakeTimeout: 5 * time.Second,  // TLS握手超时
-			ResponseHeaderTimeout: 5 * time.Second,  // 响应头超时
-			ExpectContinueTimeout: 1 * time.Second,  // 100-continue等待超时
-		},
-	}
-
-	// 使用自定义的HTTP客户端创建Binance客户端
 	client := binance.NewFuturesClient(apiKey, secretKey)
-	client.HTTPClient = httpClient
-
+	
 	return &TraderCLI{
 		client:     client,
 		maxProfit:  make(map[string]float64),
