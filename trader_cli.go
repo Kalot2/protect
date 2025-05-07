@@ -69,7 +69,6 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 
 	// 检查是否已有止损单
 	hasValidStopLoss := false
-	entryPrice, _ := strconv.ParseFloat(position.EntryPrice, 64)
 	for _, order := range orders {
 		if order.Type == futures.OrderTypeStopMarket {
 			qty, _ := strconv.ParseFloat(order.OrigQuantity, 64)
@@ -146,7 +145,6 @@ func (t *TraderCLI) checkAndSetTakeProfit(position *futures.PositionRisk) error 
 
 	// 检查是否已有止盈单
 	hasValidTakeProfit := false
-	entryPrice, _ := strconv.ParseFloat(position.EntryPrice, 64)
 	for _, order := range orders {
 		if order.Type == futures.OrderTypeLimit {
 			qty, _ := strconv.ParseFloat(order.OrigQuantity, 64)
