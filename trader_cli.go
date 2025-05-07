@@ -37,8 +37,8 @@ func (t *TraderCLI) cancelAllTPSL() error {
 	}
 
 	for _, order := range orders {
-		// 只取消止盈(LIMIT)和止损(STOP_MARKET)订单
-		if order.Type == futures.OrderTypeLimit || order.Type == futures.OrderTypeStopMarket {
+		// 只取消止盈止损单
+		if (order.Type == futures.OrderTypeLimit && order.ReduceOnly) || order.Type == futures.OrderTypeStopMarket {
 			_, err := t.client.NewCancelOrderService().
 				Symbol("SOLUSDC").
 				OrderID(order.OrderID).
