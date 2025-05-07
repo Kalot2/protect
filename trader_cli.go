@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -20,8 +22,23 @@ type TraderCLI struct {
 }
 
 func NewTraderCLI(apiKey, secretKey string) (*TraderCLI, error) {
+	// 创建自定义的HTTP客户端，设置超时时间
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,  // 设置10秒超时
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout: 5 * time.Second,  // 连接超时
+			}).DialContext,
+			TLSHandshakeTimeout: 5 * time.Second,  // TLS握手超时
+			ResponseHeaderTimeout: 5 * time.Second,  // 响应头超时
+			ExpectContinueTimeout: 1 * time.Second,  // 100-continue等待超时
+		},
+	}
+
+	// 使用自定义的HTTP客户端创建Binance客户端
 	client := binance.NewFuturesClient(apiKey, secretKey)
-	
+	client.HTTPClient = httpClient
+
 	return &TraderCLI{
 		client:     client,
 		maxProfit:  make(map[string]float64),
@@ -277,43 +294,50 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 	}
 
 	return nil
-}
 
-func (t *TraderCLI) run() error {
-	log.Println("交易系统启动...")
-
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		positions, err := t.client.NewGetPositionRiskService().Do(context.Background())
-		if err != nil {
-			log.Printf("获取持仓信息失败: %v", err)
-			continue
-		}
-
-		for _, p := range positions {
-			if p.Symbol == "SOLUSDC" {
-				amt, _ := strconv.ParseFloat(p.PositionAmt, 64)
-				if amt != 0 {
-					if err := t.checkProtectiveStopProfit(p); err != nil {
-						log.Printf("检查保护止盈失败: %v", err)
-					}
-
-					// 检查并设置止损
-					if err := t.checkAndSetStopLoss(p); err != nil {
-						log.Printf("设置止损失败: %v", err)
-					}
-				}
-			}
-		}
-	}
-
-	return nil
 }
 
 func roundToTickSize(price float64, tickSize float64) float64 {
 	return math.Round(price/tickSize) * tickSize
+}
+
+func (t *TraderCLI) run() error {
+	log.Printf("交易系统启动...")
+
+	for {
+		log.Printf("获取持仓信息...")
+		// 获取持仓信息
+		positions, err := t.client.NewGetPositionRiskService().Do(context.Background())
+		if err != nil {
+			log.Printf("获取持仓信息失败: %v", err)
+			time.Sleep(5 * time.Second)  // 失败后等待5秒
+			continue
+		}
+
+		log.Printf("获取到 %d 个持仓信息", len(positions))
+
+		// 检查每个持仓
+		hasSOLPosition := false
+		for _, p := range positions {
+			if p.Symbol == "SOLUSDC" {
+				hasSOLPosition = true
+				amt, _ := strconv.ParseFloat(p.PositionAmt, 64)
+				log.Printf("检查 SOLUSDC 持仓，数量: %.4f", amt)
+				
+				// 检查止盈止损
+				if err := t.checkProtectiveStopProfit(p); err != nil {
+					log.Printf("检查止盈止损失败: %v", err)
+				}
+			}
+		}
+
+		if !hasSOLPosition {
+			log.Printf("未找到 SOLUSDC 持仓信息")
+		}
+
+		// 等待一秒
+		time.Sleep(time.Second)
+	}
 }
 
 func main() {
