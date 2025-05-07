@@ -66,44 +66,35 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 		return fmt.Errorf("获取订单失败: %v", err)
 	}
 
-	// 计算当前止损订单的总数量
-	var totalStopLossQty float64
+	// 检查是否已有止损单
+	hasValidStopLoss := false
+	entryPrice, _ := strconv.ParseFloat(position.EntryPrice, 64)
 	for _, order := range orders {
 		if order.Type == futures.OrderTypeStopMarket {
 			qty, _ := strconv.ParseFloat(order.OrigQuantity, 64)
-			totalStopLossQty += qty
+			// 检查数量是否匹配
+			if math.Abs(qty - math.Abs(amt)) <= 0.0001 {
+				hasValidStopLoss = true
+				break
+			}
 		}
 	}
 
-	// 如果止损订单总数量不等于仓位数量，重新设置
-	if math.Abs(totalStopLossQty - math.Abs(amt)) > 0.0001 {
-		log.Printf("止损订单数量不匹配 [订单: %.4f, 仓位: %.4f]，重新设置止盈止损", totalStopLossQty, math.Abs(amt))
+	// 如果没有有效的止损单，重新设置
+	if !hasValidStopLoss {
+		log.Printf("没有有效的止损单，重新设置止盈止损")
 		if err := t.cancelAllTPSL(); err != nil {
 			return fmt.Errorf("取消订单失败: %v", err)
 		}
-		t.positions["SOLUSDC"] = amt
-		// 等待一秒，确保订单已经被取消
-		time.Sleep(time.Second)
-	}
-
-	// 检查是否已有止损单
-	hasStopLoss := false
-	entryPrice, _ := strconv.ParseFloat(position.EntryPrice, 64)
-	for _, order := range orders {
-		if (amt > 0 && order.Side == futures.SideTypeSell && order.Type == futures.OrderTypeStopMarket) ||
-			(amt < 0 && order.Side == futures.SideTypeBuy && order.Type == futures.OrderTypeStopMarket) {
-			hasStopLoss = true
-			break
-		}
-	}
-
-	// 如果已经有止损单且数量正确，不需要重新设置
-	if hasStopLoss {
+		// 等待两秒，确保订单已经被取消
+		time.Sleep(2 * time.Second)
 		return nil
 	}
 
-	// 如果没有止损单，创建一个
-	if !hasStopLoss {
+	entryPrice, _ := strconv.ParseFloat(position.EntryPrice, 64)
+
+	// 如果没有有效的止损单，创建一个
+	if !hasValidStopLoss {
 		stopPrice := entryPrice
 		side := futures.SideTypeSell
 		positionSide := futures.PositionSideTypeLong
@@ -153,38 +144,35 @@ func (t *TraderCLI) checkAndSetTakeProfit(position *futures.PositionRisk) error 
 		return fmt.Errorf("获取订单失败: %v", err)
 	}
 
-	// 计算当前止盈订单的总数量
-	var totalTakeProfitQty float64
+	// 检查是否已有止盈单
+	hasValidTakeProfit := false
+	entryPrice, _ := strconv.ParseFloat(position.EntryPrice, 64)
 	for _, order := range orders {
 		if order.Type == futures.OrderTypeLimit {
 			qty, _ := strconv.ParseFloat(order.OrigQuantity, 64)
-			totalTakeProfitQty += qty
+			// 检查数量是否匹配
+			if math.Abs(qty - math.Abs(amt)) <= 0.0001 {
+				hasValidTakeProfit = true
+				break
+			}
 		}
 	}
 
-	// 如果止盈订单总数量不等于仓位数量，重新设置
-	if math.Abs(totalTakeProfitQty - math.Abs(amt)) > 0.0001 {
-		log.Printf("止盈订单数量不匹配 [订单: %.4f, 仓位: %.4f]，重新设置止盈止损", totalTakeProfitQty, math.Abs(amt))
+	// 如果没有有效的止盈单，重新设置
+	if !hasValidTakeProfit {
+		log.Printf("没有有效的止盈单，重新设置止盈止损")
 		if err := t.cancelAllTPSL(); err != nil {
 			return fmt.Errorf("取消订单失败: %v", err)
 		}
-		// 等待一秒，确保订单已经被取消
-		time.Sleep(time.Second)
+		// 等待两秒，确保订单已经被取消
+		time.Sleep(2 * time.Second)
+		return nil
 	}
 
-	// 检查是否已有止盈单
-	hasTakeProfit := false
 	entryPrice, _ := strconv.ParseFloat(position.EntryPrice, 64)
-	for _, order := range orders {
-		if (amt > 0 && order.Side == futures.SideTypeSell && order.Type == futures.OrderTypeLimit) ||
-			(amt < 0 && order.Side == futures.SideTypeBuy && order.Type == futures.OrderTypeLimit) {
-			hasTakeProfit = true
-			break
-		}
-	}
 
-	// 如果没有止盈单，创建一个
-	if !hasTakeProfit {
+	// 如果没有有效的止盈单，创建一个
+	if !hasValidTakeProfit {
 		side := futures.SideTypeSell
 		positionSide := futures.PositionSideTypeLong
 		var price float64
