@@ -29,6 +29,31 @@ func NewTraderCLI(apiKey, secretKey string) (*TraderCLI, error) {
 	}, nil
 }
 
+// 取消所有止盈止损订单
+func (t *TraderCLI) cancelAllTPSL() error {
+	orders, err := t.client.NewListOpenOrdersService().Symbol("SOLUSDC").Do(context.Background())
+	if err != nil {
+		return fmt.Errorf("获取订单失败: %v", err)
+	}
+
+	for _, order := range orders {
+		// 只取消止盈(LIMIT)和止损(STOP_MARKET)订单
+		if order.Type == futures.OrderTypeLimit || order.Type == futures.OrderTypeStopMarket {
+			_, err := t.client.NewCancelOrderService().
+				Symbol("SOLUSDC").
+				OrderID(order.OrderID).
+				Do(context.Background())
+			
+			if err != nil {
+				log.Printf("取消订单失败 [OrderID: %d]: %v", order.OrderID, err)
+				continue
+			}
+			log.Printf("已取消订单 [OrderID: %d, Type: %s]", order.OrderID, order.Type)
+		}
+	}
+	return nil
+}
+
 func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 	amt, _ := strconv.ParseFloat(position.PositionAmt, 64)
 	if amt == 0 {
@@ -36,20 +61,20 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 	}
 
 	// 检查仓位是否变化
-	lastAmt, exists := t.positions[position.Symbol]
+	lastAmt, exists := t.positions["SOLUSDC"]
 	if !exists {
-		t.positions[position.Symbol] = amt
+		t.positions["SOLUSDC"] = amt
 	} else if lastAmt != amt {
 		// 仓位发生变化，取消所有止盈止损订单
 		log.Printf("仓位变化 [%.4f -> %.4f]，重新设置止盈止损", lastAmt, amt)
-		if err := t.cancelAllTPSL(position.Symbol); err != nil {
+		if err := t.cancelAllTPSL(); err != nil {
 			return fmt.Errorf("取消订单失败: %v", err)
 		}
-		t.positions[position.Symbol] = amt
+		t.positions["SOLUSDC"] = amt
 	}
 
 	// 获取当前止损订单
-	orders, err := t.client.NewListOpenOrdersService().Symbol(position.Symbol).Do(context.Background())
+	orders, err := t.client.NewListOpenOrdersService().Symbol("SOLUSDC").Do(context.Background())
 	if err != nil {
 		return fmt.Errorf("获取订单失败: %v", err)
 	}
@@ -87,7 +112,7 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 
 		// 创建止损市价单
 		_, err := t.client.NewCreateOrderService().
-			Symbol(position.Symbol).
+			Symbol("SOLUSDC").
 			Side(side).
 			PositionSide(positionSide).
 			Type(futures.OrderTypeStopMarket).
@@ -111,7 +136,7 @@ func (t *TraderCLI) checkAndSetTakeProfit(position *futures.PositionRisk) error 
 	}
 
 	// 获取当前订单
-	orders, err := t.client.NewListOpenOrdersService().Symbol(position.Symbol).Do(context.Background())
+	orders, err := t.client.NewListOpenOrdersService().Symbol("SOLUSDC").Do(context.Background())
 	if err != nil {
 		return fmt.Errorf("获取订单失败: %v", err)
 	}
@@ -150,7 +175,7 @@ func (t *TraderCLI) checkAndSetTakeProfit(position *futures.PositionRisk) error 
 
 		// 创建限价止盈单
 		_, err := t.client.NewCreateOrderService().
-			Symbol(position.Symbol).
+			Symbol("SOLUSDC").
 			Side(side).
 			PositionSide(positionSide).
 			Type(futures.OrderTypeLimit).
@@ -197,7 +222,7 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 
 		// 市价平仓
 		_, err := t.client.NewCreateOrderService().
-			Symbol(position.Symbol).
+			Symbol("SOLUSDC").
 			Side(side).
 			PositionSide(positionSide).
 			Type(futures.OrderTypeMarket).
