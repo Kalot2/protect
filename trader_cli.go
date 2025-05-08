@@ -305,7 +305,8 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 				TimeInForce(futures.TimeInForceTypeGTC).
 				Quantity(fmt.Sprintf("%.4f", math.Abs(amt))).
 				Price(fmt.Sprintf("%.2f", takeProfitPrice)).
-				WorkingType("CONTRACT_PRICE")
+				WorkingType("CONTRACT_PRICE").
+				ReduceOnly(true)
 
 			_, err = profitOrder.Do(context.Background())
 			if err != nil {
