@@ -411,8 +411,6 @@ func (t *TraderCLI) run() error {
 			// 如果没有找到持仓，创建一个空持仓
 			if currentPosition == nil {
 				currentPosition = &futures.PositionRisk{Symbol: "SOLUSDC", PositionAmt: "0"}
-				t.lastPosition["SOLUSDC"] = currentPosition
-				t.lastUpdate["SOLUSDC"] = time.Now()
 			}
 		}
 
