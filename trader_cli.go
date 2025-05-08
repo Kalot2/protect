@@ -33,16 +33,25 @@ func NewTraderCLI(apiKey, secretKey string) (*TraderCLI, error) {
 	}, nil
 }
 
-// 取消所有止盈止损订单
-func (t *TraderCLI) cancelAllTPSL() error {
+// 取消所有止盈止损单
+func (t *TraderCLI) cancelAllTPSL(currentAmt float64) error {
 	orders, err := t.client.NewListOpenOrdersService().Symbol("SOLUSDC").Do(context.Background())
 	if err != nil {
 		return fmt.Errorf("获取订单失败: %v", err)
 	}
 
 	for _, order := range orders {
-		// 只取消止盈止损单
+		// 检查是否是止盈止损单
 		if (order.Type == futures.OrderTypeLimit && order.ReduceOnly) || order.Type == futures.OrderTypeStopMarket {
+			// 如果指定了当前仓位，检查订单数量是否匹配
+			if currentAmt != 0 {
+				qty, _ := strconv.ParseFloat(order.OrigQuantity, 64)
+				// 如果订单数量与当前仓位相同，跳过
+				if math.Abs(qty - math.Abs(currentAmt)) <= 0.0001 {
+					continue
+				}
+			}
+
 			_, err := t.client.NewCancelOrderService().
 				Symbol("SOLUSDC").
 				OrderID(order.OrderID).
@@ -87,7 +96,7 @@ func (t *TraderCLI) checkAndSetStopLoss(position *futures.PositionRisk) error {
 	// 如果没有有效的止损单，重新设置
 	if !hasValidStopLoss {
 		log.Printf("没有有效的止损单，重新设置止盈止损")
-		if err := t.cancelAllTPSL(); err != nil {
+		if err := t.cancelAllTPSL(amt); err != nil {
 			return fmt.Errorf("取消订单失败: %v", err)
 		}
 		// 等待两秒，确保订单已经被取消
@@ -146,7 +155,7 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 		direction = "无"
 		// 没有持仓时，清除记录并撤销所有止盈止损单
 		delete(t.maxProfit, position.Symbol)
-		if err := t.cancelAllTPSL(); err != nil {
+		if err := t.cancelAllTPSL(0); err != nil {
 			return fmt.Errorf("取消订单失败: %v", err)
 		}
 		log.Printf("没有持仓，已撤销所有止盈止损单")
@@ -177,7 +186,7 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 		log.Printf("仓位或入场价变化，准备重新设置订单")
 		log.Printf("旧仓位: %.4f, 新仓位: %.4f", lastAmt, amt)
 		log.Printf("旧入场价: %.2f, 新入场价: %.2f", lastEntryPrice, entryPrice)
-		if err := t.cancelAllTPSL(); err != nil {
+		if err := t.cancelAllTPSL(amt); err != nil {
 			return fmt.Errorf("取消订单失败: %v", err)
 		}
 		time.Sleep(1 * time.Second)
@@ -194,29 +203,12 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 	for _, order := range orders {
 		qty, _ := strconv.ParseFloat(order.OrigQuantity, 64)
 		if math.Abs(qty - math.Abs(amt)) <= 0.0001 {
-			// 根据仓位方向检查订单
-			if amt > 0 { // 多仓
-				// 止损单应该是Sell，止盈单也是Sell
-				if order.Side == futures.SideTypeSell {
-					if order.Type == futures.OrderTypeStopMarket {
-						hasValidStopLoss = true
-						log.Printf("发现有效多仓止损单: 数量=%.4f, 价格=%.2f", qty, order.StopPrice)
-					} else if order.Type == futures.OrderTypeLimit {
-						hasValidTakeProfit = true
-						log.Printf("发现有效多仓止盈单: 数量=%.4f, 价格=%.2f", qty, order.Price)
-					}
-				}
-			} else { // 空仓
-				// 止损单应该是Buy，止盈单也是Buy
-				if order.Side == futures.SideTypeBuy {
-					if order.Type == futures.OrderTypeStopMarket {
-						hasValidStopLoss = true
-						log.Printf("发现有效空仓止损单: 数量=%.4f, 价格=%.2f", qty, order.StopPrice)
-					} else if order.Type == futures.OrderTypeLimit {
-						hasValidTakeProfit = true
-						log.Printf("发现有效空仓止盈单: 数量=%.4f, 价格=%.2f", qty, order.Price)
-					}
-				}
+			if order.Type == futures.OrderTypeStopMarket {
+				hasValidStopLoss = true
+				log.Printf("发现有效止损单: 数量=%.4f, 价格=%.2f", qty, order.StopPrice)
+			} else if order.Type == futures.OrderTypeLimit {
+				hasValidTakeProfit = true
+				log.Printf("发现有效止盈单: 数量=%.4f, 价格=%.2f", qty, order.Price)
 			}
 		}
 	}
@@ -225,7 +217,7 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 	if amt == 0 {
 		if len(orders) > 0 {
 			log.Printf("没有持仓，但发现%d个订单，准备清除", len(orders))
-			if err := t.cancelAllTPSL(); err != nil {
+			if err := t.cancelAllTPSL(amt); err != nil {
 				return fmt.Errorf("取消订单失败: %v", err)
 			}
 		}
@@ -305,8 +297,7 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 				TimeInForce(futures.TimeInForceTypeGTC).
 				Quantity(fmt.Sprintf("%.4f", math.Abs(amt))).
 				Price(fmt.Sprintf("%.2f", takeProfitPrice)).
-				WorkingType("CONTRACT_PRICE").
-				ReduceOnly(true)
+				WorkingType("CONTRACT_PRICE")
 
 			_, err = profitOrder.Do(context.Background())
 			if err != nil {
@@ -404,6 +395,9 @@ func (t *TraderCLI) run() error {
 							p.Symbol, p.PositionAmt, p.EntryPrice, p.MarkPrice,
 							p.UnRealizedProfit, p.LiquidationPrice, p.Leverage, p.MarginType)
 						currentPosition = p
+						// 更新缓存
+						t.lastPosition["SOLUSDC"] = p
+						t.lastUpdate["SOLUSDC"] = time.Now()
 						break
 					}
 				}
@@ -412,30 +406,9 @@ func (t *TraderCLI) run() error {
 			// 如果没有找到持仓，创建一个空持仓
 			if currentPosition == nil {
 				currentPosition = &futures.PositionRisk{Symbol: "SOLUSDC", PositionAmt: "0"}
+				t.lastPosition["SOLUSDC"] = currentPosition
+				t.lastUpdate["SOLUSDC"] = time.Now()
 			}
-
-			// 检查是否需要撤销旧的止盈止损单
-			if lastPos, ok := t.lastPosition["SOLUSDC"]; ok {
-				lastAmt, _ := strconv.ParseFloat(lastPos.PositionAmt, 64)
-				newAmt, _ := strconv.ParseFloat(currentPosition.PositionAmt, 64)
-				lastEntry, _ := strconv.ParseFloat(lastPos.EntryPrice, 64)
-				newEntry, _ := strconv.ParseFloat(currentPosition.EntryPrice, 64)
-
-				// 如果仓位或入场价变化，先撤销所有订单
-				if math.Abs(lastAmt-newAmt) > 0.0001 || math.Abs(lastEntry-newEntry) > 0.01 {
-					log.Printf("仓位或入场价变化，撤销旧订单")
-					log.Printf("旧仓位: %.4f, 新仓位: %.4f", lastAmt, newAmt)
-					log.Printf("旧入场价: %.2f, 新入场价: %.2f", lastEntry, newEntry)
-					if err := t.cancelAllTPSL(); err != nil {
-						log.Printf("撤销订单失败: %v", err)
-					}
-					time.Sleep(1 * time.Second)
-				}
-			}
-
-			// 更新缓存
-			t.lastPosition["SOLUSDC"] = currentPosition
-			t.lastUpdate["SOLUSDC"] = time.Now()
 		}
 
 		// 处理持仓信息
