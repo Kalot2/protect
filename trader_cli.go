@@ -194,12 +194,29 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 	for _, order := range orders {
 		qty, _ := strconv.ParseFloat(order.OrigQuantity, 64)
 		if math.Abs(qty - math.Abs(amt)) <= 0.0001 {
-			if order.Type == futures.OrderTypeStopMarket {
-				hasValidStopLoss = true
-				log.Printf("发现有效止损单: 数量=%.4f, 价格=%.2f", qty, order.StopPrice)
-			} else if order.Type == futures.OrderTypeLimit {
-				hasValidTakeProfit = true
-				log.Printf("发现有效止盈单: 数量=%.4f, 价格=%.2f", qty, order.Price)
+			// 根据仓位方向检查订单
+			if amt > 0 { // 多仓
+				// 止损单应该是Sell，止盈单也是Sell
+				if order.Side == futures.SideTypeSell {
+					if order.Type == futures.OrderTypeStopMarket {
+						hasValidStopLoss = true
+						log.Printf("发现有效多仓止损单: 数量=%.4f, 价格=%.2f", qty, order.StopPrice)
+					} else if order.Type == futures.OrderTypeLimit {
+						hasValidTakeProfit = true
+						log.Printf("发现有效多仓止盈单: 数量=%.4f, 价格=%.2f", qty, order.Price)
+					}
+				}
+			} else { // 空仓
+				// 止损单应该是Buy，止盈单也是Buy
+				if order.Side == futures.SideTypeBuy {
+					if order.Type == futures.OrderTypeStopMarket {
+						hasValidStopLoss = true
+						log.Printf("发现有效空仓止损单: 数量=%.4f, 价格=%.2f", qty, order.StopPrice)
+					} else if order.Type == futures.OrderTypeLimit {
+						hasValidTakeProfit = true
+						log.Printf("发现有效空仓止盈单: 数量=%.4f, 价格=%.2f", qty, order.Price)
+					}
+				}
 			}
 		}
 	}
@@ -383,13 +400,10 @@ func (t *TraderCLI) run() error {
 					// 如果是SOLUSDC，直接使用这个持仓信息
 					if p.Symbol == "SOLUSDC" {
 						log.Printf("找到SOLUSDC有效持仓 - Symbol: %s, PositionAmt: %s, EntryPrice: %s, MarkPrice: %s, UnRealizedProfit: %s, LiquidationPrice: %s, Leverage: %s, MarginType: %s",
-							p.Symbol, p.PositionAmt, p.EntryPrice, p.MarkPrice,
-							p.UnRealizedProfit, p.LiquidationPrice, p.Leverage, p.MarginType)
-						currentPosition = p
-						// 更新缓存
-						t.lastPosition["SOLUSDC"] = p
-						t.lastUpdate["SOLUSDC"] = time.Now()
-						break
+						p.Symbol, p.PositionAmt, p.EntryPrice, p.MarkPrice,
+						p.UnRealizedProfit, p.LiquidationPrice, p.Leverage, p.MarginType)
+					currentPosition = p
+					break
 					}
 				}
 			}
@@ -409,6 +423,10 @@ func (t *TraderCLI) run() error {
 		// 检查止盈止损
 		if err := t.checkProtectiveStopProfit(currentPosition); err != nil {
 			log.Printf("检查止盈止损失败: %v", err)
+		} else {
+			// 只有在成功设置止盈止损单后才更新lastPosition
+			t.lastPosition["SOLUSDC"] = currentPosition
+			t.lastUpdate["SOLUSDC"] = time.Now()
 		}
 
 		// 等待一秒
