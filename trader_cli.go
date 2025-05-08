@@ -412,6 +412,10 @@ func (t *TraderCLI) run() error {
 			if currentPosition == nil {
 				currentPosition = &futures.PositionRisk{Symbol: "SOLUSDC", PositionAmt: "0"}
 			}
+
+			// 每次获取到新的持仓信息后就更新lastPosition
+			t.lastPosition["SOLUSDC"] = currentPosition
+			t.lastUpdate["SOLUSDC"] = time.Now()
 		}
 
 		// 处理持仓信息
@@ -421,10 +425,6 @@ func (t *TraderCLI) run() error {
 		// 检查止盈止损
 		if err := t.checkProtectiveStopProfit(currentPosition); err != nil {
 			log.Printf("检查止盈止损失败: %v", err)
-		} else {
-			// 只有在成功设置止盈止损单后才更新lastPosition
-			t.lastPosition["SOLUSDC"] = currentPosition
-			t.lastUpdate["SOLUSDC"] = time.Now()
 		}
 
 		// 等待一秒
