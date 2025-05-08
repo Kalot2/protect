@@ -400,10 +400,10 @@ func (t *TraderCLI) run() error {
 					// 如果是SOLUSDC，直接使用这个持仓信息
 					if p.Symbol == "SOLUSDC" {
 						log.Printf("找到SOLUSDC有效持仓 - Symbol: %s, PositionAmt: %s, EntryPrice: %s, MarkPrice: %s, UnRealizedProfit: %s, LiquidationPrice: %s, Leverage: %s, MarginType: %s",
-						p.Symbol, p.PositionAmt, p.EntryPrice, p.MarkPrice,
-						p.UnRealizedProfit, p.LiquidationPrice, p.Leverage, p.MarginType)
-					currentPosition = p
-					break
+							p.Symbol, p.PositionAmt, p.EntryPrice, p.MarkPrice,
+							p.UnRealizedProfit, p.LiquidationPrice, p.Leverage, p.MarginType)
+						currentPosition = p
+						break
 					}
 				}
 			}
