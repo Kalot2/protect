@@ -413,7 +413,26 @@ func (t *TraderCLI) run() error {
 				currentPosition = &futures.PositionRisk{Symbol: "SOLUSDC", PositionAmt: "0"}
 			}
 
-			// 每次获取到新的持仓信息后就更新lastPosition
+			// 检查是否需要撤销旧的止盈止损单
+			if lastPos, ok := t.lastPosition["SOLUSDC"]; ok {
+				lastAmt, _ := strconv.ParseFloat(lastPos.PositionAmt, 64)
+				newAmt, _ := strconv.ParseFloat(currentPosition.PositionAmt, 64)
+				lastEntry, _ := strconv.ParseFloat(lastPos.EntryPrice, 64)
+				newEntry, _ := strconv.ParseFloat(currentPosition.EntryPrice, 64)
+
+				// 如果仓位或入场价变化，先撤销所有订单
+				if math.Abs(lastAmt-newAmt) > 0.0001 || math.Abs(lastEntry-newEntry) > 0.01 {
+					log.Printf("仓位或入场价变化，撤销旧订单")
+					log.Printf("旧仓位: %.4f, 新仓位: %.4f", lastAmt, newAmt)
+					log.Printf("旧入场价: %.2f, 新入场价: %.2f", lastEntry, newEntry)
+					if err := t.cancelAllTPSL(); err != nil {
+						log.Printf("撤销订单失败: %v", err)
+					}
+					time.Sleep(1 * time.Second)
+				}
+			}
+
+			// 更新缓存
 			t.lastPosition["SOLUSDC"] = currentPosition
 			t.lastUpdate["SOLUSDC"] = time.Now()
 		}
