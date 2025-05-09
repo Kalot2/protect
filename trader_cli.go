@@ -276,13 +276,13 @@ func (t *TraderCLI) checkProtectiveStopProfit(position *futures.PositionRisk) er
 			positionSide := futures.PositionSideTypeLong
 			if amt > 0 {
 				// 多仓，止盈价格在入场价上方100点
-				takeProfitPrice = entryPrice + 2.0
+				takeProfitPrice = entryPrice + 1.5
 				side = futures.SideTypeSell
 				positionSide = futures.PositionSideTypeLong
 				log.Printf("设置多仓止盈单，入场价: %.2f，止盈价: %.2f", entryPrice, takeProfitPrice)
 			} else {
 				// 空仓，止盈价格在入场价下方100点
-				takeProfitPrice = entryPrice - 2.0
+				takeProfitPrice = entryPrice - 1.5
 				side = futures.SideTypeBuy
 				positionSide = futures.PositionSideTypeShort
 				log.Printf("设置空仓止盈单，入场价: %.2f，止盈价: %.2f", entryPrice, takeProfitPrice)
